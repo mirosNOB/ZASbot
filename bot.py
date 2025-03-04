@@ -62,7 +62,7 @@ async def retry_async(func: Callable[..., Awaitable], *args, max_retries: int = 
                 last_exception = e
             else:
                 # Для других ошибок не делаем повторных попыток
-                raise
+                raise e
         
         # Экспоненциальная задержка между попытками
         if attempt < max_retries - 1:
@@ -72,9 +72,10 @@ async def retry_async(func: Callable[..., Awaitable], *args, max_retries: int = 
     # Если все попытки не удались, выбрасываем последнюю ошибку
     error_msg = f"Не удалось выполнить {func.__name__} после {max_retries} попыток"
     logger.error(error_msg)
+    
     if last_exception:
         raise type(last_exception)(f"{error_msg}: {str(last_exception)}")
-        else:
+    else:
         raise Exception(error_msg)
 
 # Декоратор для применения retry_async к методам бота
@@ -350,7 +351,7 @@ async def add_channel_to_strategy(callback_query: types.CallbackQuery, state: FS
     if not channels:
         # Если нет добавленных каналов, предлагаем добавить новый или продолжить без канала
         keyboard = InlineKeyboardMarkup(row_width=1)
-        keyboard.add(так и не работает думаю не ток в инете дело бля
+        keyboard.add(
             InlineKeyboardButton("➕ Добавить новый канал", callback_data="add_new_channel"),
             InlineKeyboardButton("➡️ Продолжить без канала", callback_data="continue_without_channel"),
             InlineKeyboardButton("❌ Отменить", callback_data="cancel_strategy")
@@ -890,6 +891,10 @@ async def generate_strategy(chat_id: int, state: FSMContext):
         strategy_result = await generation_task
         # Отменяем обновление сообщения
         update_task.cancel()
+    except Exception as e:
+        # Отменяем обновление сообщения в случае ошибки
+        update_task.cancel()
+        raise e
         
     # Проверяем наличие ошибки в ответе
     if "error" in strategy_result:
@@ -900,7 +905,7 @@ async def generate_strategy(chat_id: int, state: FSMContext):
             InlineKeyboardButton("🔄 Новая стратегия", callback_data="new_strategy")
         )
         
-            await processing_msg.edit_text(
+        await processing_msg.edit_text(
             f"Ошибка при генерации стратегии: {strategy_result['error']}",
             reply_markup=menu_keyboard
         )

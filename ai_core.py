@@ -160,7 +160,7 @@ class AIManager:
                     try:
                         response = await g4f.ChatCompletion.create_async(
                             model=self.model_manager.get_current_model(),
-                            messages=messages,
+                    messages=messages,
                             provider=provider,
                             proxy=proxy_str,
                             temperature=temperature
@@ -176,7 +176,7 @@ class AIManager:
                     self.proxy_manager.current_proxy = None
                     continue
                     
-            except Exception as e:
+        except Exception as e:
                 last_error = e
                 self.logger.error(f"Ошибка при попытке {attempt + 1}/{max_retries}: {e}")
                 if attempt < max_retries - 1:
