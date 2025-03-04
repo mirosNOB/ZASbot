@@ -10,6 +10,7 @@ from g4f.Provider import (
     PollinationsAI
 )
 from g4f import Model, models
+from proxy_manager import ProxyManager
 
 # Logger setup function
 def setup_logger(name=None, level=logging.INFO):
@@ -132,85 +133,57 @@ class AIModelManager:
 class AIManager:
     def __init__(self):
         self.model_manager = AIModelManager()
+        self.proxy_manager = ProxyManager()
         self.logger = setup_logger(__name__)
 
     async def _make_request(self, messages: List[Dict[str, str]], temperature: float = 0.7) -> str:
-        """Отправка запроса к модели"""
-        try:
-            # Получаем модель и провайдеры
-            model = self.model_manager.get_current_model()
-            providers = self.model_manager.current_providers
-            self.logger.info(f"Запрос к модели {model} через провайдеры {', '.join([p.__name__ for p in providers])}")
-            
-            # Получаем прокси из менеджера
-            proxy_url = await proxy_manager.get_next_proxy()
-            proxies = proxy_manager.format_proxy_for_g4f(proxy_url) if proxy_url else {}
-            
-            if proxies:
-                self.logger.info(f"Используем прокси: {proxy_url}")
-            else:
-                self.logger.warning("Прокси не найдены, запрос будет отправлен напрямую")
-            
+        """Выполнение запроса к AI с поддержкой прокси"""
+        max_retries = 3
+        last_error = None
+        
+        for attempt in range(max_retries):
             try:
-                # Улучшенная обработка потокового режима с обработкой форматов ответов
-                response_chunks = []
-                async for chunk in g4f.ChatCompletion.create_async(
-                    model=model,
-                    messages=messages,
-                    providers=providers,
-                    temperature=temperature,
-                    stream=True,
-                    proxy=proxies,  # Передаем прокси в запрос
-                ):
-                    if chunk:
-                        # Проверяем, не является ли чанк словарем с форматом data:{"content":"..."}
-                        if isinstance(chunk, dict) and "content" in chunk:
-                            chunk = chunk.get("content", "")
-                        elif isinstance(chunk, str) and chunk.startswith('data:'):
-                            # Удаляем префикс data: и пытаемся получить содержимое
-                            try:
-                                import json
-                                json_str = chunk.replace('data:', '').strip()
-                                if json_str:
-                                    data = json.loads(json_str)
-                                    if isinstance(data, dict) and "content" in data:
-                                        chunk = data.get("content", "")
-                            except Exception as json_error:
-                                self.logger.warning(f"Не удалось разобрать JSON из потокового ответа: {json_error}")
-                        
-                        response_chunks.append(str(chunk))
+                # Получаем рабочий прокси
+                proxy = await self.proxy_manager.ensure_working_proxy()
+                if not proxy:
+                    self.logger.warning("Не удалось получить рабочий прокси, пробуем без прокси")
                 
-                # Собираем полный ответ из частей
-                complete_response = ''.join(response_chunks)
-                self.logger.debug(f"Полный ответ от модели получен (потоковый режим), длина: {len(complete_response)}")
+                # Настраиваем g4f
+                g4f.debug.logging = False
+                g4f.debug.version_check = False
                 
-            except Exception as stream_error:
-                # Если потоковый режим не работает, используем обычный запрос
-                self.logger.warning(f"Ошибка при использовании потокового режима: {stream_error}. Переключаемся на обычный режим.")
-                complete_response = await g4f.ChatCompletion.create_async(
-                    model=model,
-                    messages=messages,
-                    providers=providers,
-                    temperature=temperature,
-                    stream=False,
-                    proxy=proxies,  # Передаем прокси в запрос
-                )
+                # Форматируем прокси для g4f
+                proxy_str = self.proxy_manager.format_proxy_for_g4f(proxy["http"]) if proxy else None
                 
-                # Если ответ пришел в формате словаря с полем content
-                if isinstance(complete_response, dict) and "content" in complete_response:
-                    complete_response = complete_response.get("content", "")
+                # Пробуем с каждым провайдером
+                for provider in self.model_manager.get_current_providers():
+                    try:
+                        response = await g4f.ChatCompletion.create_async(
+                            model=self.model_manager.get_current_model(),
+                            messages=messages,
+                            provider=provider,
+                            proxy=proxy_str,
+                            temperature=temperature
+                        )
+                        if response:
+                            return response
+                    except Exception as e:
+                        self.logger.warning(f"Ошибка с провайдером {provider.__name__}: {e}")
+                        continue
                 
-                self.logger.debug(f"Полный ответ от модели получен (обычный режим), длина: {len(complete_response) if complete_response else 0}")
-            
-            # Проверка на пустой ответ
-            if not complete_response:
-                self.logger.warning("Получен пустой ответ от модели")
-                return "Не удалось получить ответ от модели. Пожалуйста, попробуйте еще раз или измените запрос."
-                
-            return complete_response
-        except Exception as e:
-            self.logger.error(f"Ошибка при запросе к модели: {e}")
-            return "Ошибка при обработке запроса: " + str(e)
+                # Если все провайдеры не сработали, пробуем следующий прокси
+                if proxy:
+                    self.proxy_manager.current_proxy = None
+                    continue
+                    
+            except Exception as e:
+                last_error = e
+                self.logger.error(f"Ошибка при попытке {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)  # Экспоненциальная задержка
+                continue
+        
+        raise Exception(f"Не удалось получить ответ после {max_retries} попыток. Последняя ошибка: {last_error}")
 
     async def analyze_situation(self, situation: str) -> Dict[str, Any]:
         """Анализ текущей ситуации"""

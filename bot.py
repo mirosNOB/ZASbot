@@ -350,7 +350,7 @@ async def add_channel_to_strategy(callback_query: types.CallbackQuery, state: FS
     if not channels:
         # Если нет добавленных каналов, предлагаем добавить новый или продолжить без канала
         keyboard = InlineKeyboardMarkup(row_width=1)
-        keyboard.add(
+        keyboard.add(так и не работает думаю не ток в инете дело бля
             InlineKeyboardButton("➕ Добавить новый канал", callback_data="add_new_channel"),
             InlineKeyboardButton("➡️ Продолжить без канала", callback_data="continue_without_channel"),
             InlineKeyboardButton("❌ Отменить", callback_data="cancel_strategy")

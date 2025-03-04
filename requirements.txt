@@ -4,7 +4,7 @@ python-dotenv
 python-telegram-bot
 python-telegram-bot-pagination
 asyncio
-aiohttp==3.8.5
+aiohttp>=3.8.5
 telethon
 apscheduler
 pytz
@@ -14,4 +14,5 @@ transliterate
 requests
 beautifulsoup4
 duckduckgo-search
-colorlog 
+colorlog
+aiosocks>=0.2.6 
