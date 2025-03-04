@@ -1,5 +1,4 @@
 /.env.example
-/database.py
 venv
 venv/lib64
 venv/pyvenv.cfg
